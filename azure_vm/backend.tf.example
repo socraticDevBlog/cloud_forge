@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and adjust to your needs.
+# terraform.tfvars is git-ignored by convention since it may contain
+# environment-specific / sensitive values.  
+  
+  backend "azurerm" {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "stterraformstate12345" # Must be globally unique
+    container_name       = "tfstate"
+    key                  = "prod.terraform.tfstate" # Name of the state file
+    
+    # Highly Recommended: Ensures authentication uses Entra ID (Azure AD) RBAC
+    use_azuread_auth     = true 
+  }
+}

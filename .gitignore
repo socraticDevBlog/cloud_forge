@@ -8,10 +8,11 @@ terraform.tfvars
 *.tfstate
 *.tfstate.*
 *.tfstate.backup
+backend.tf
 
 # Terraform working directories / provider caches
 .terraform/
-.terraform.lock.hcl
+!.terraform.lock.hcl
 
 # Plan output files (can contain sensitive diffs)
 *.tfplan
