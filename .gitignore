@@ -1,0 +1,25 @@
+# Local variable overrides — may contain your real IP, custom names, etc.
+terraform.tfvars
+*.tfvars
+!terraform.tfvars.example
+
+# Terraform state — contains resolved resource details, IPs, and potentially
+# sensitive values from any variables/outputs added later
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform working directories / provider caches
+.terraform/
+.terraform.lock.hcl
+
+# Plan output files (can contain sensitive diffs)
+*.tfplan
+crash.log
+crash.*.log
+
+# SSH keys, just in case one ever ends up in this folder
+*.pem
+id_rsa*
+id_ed25519*
+!*.pub
