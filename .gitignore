@@ -24,3 +24,7 @@ crash.*.log
 id_rsa*
 id_ed25519*
 !*.pub
+
+# ansible
+
+inventory.ini

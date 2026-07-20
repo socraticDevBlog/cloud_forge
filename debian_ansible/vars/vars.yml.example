@@ -1,0 +1,8 @@
+# Example values for Ansible variables used by the nginx/TLS playbook.
+# Copy this file to vars.yml and replace the placeholder values with your own.
+
+# The public domain name that will be served by nginx and used for Certbot.
+domain_name: example.com
+
+# Email address used by Certbot when requesting TLS certificates.
+certbot_email: you@example.com

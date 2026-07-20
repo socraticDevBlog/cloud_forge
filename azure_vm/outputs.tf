@@ -3,6 +3,11 @@ output "public_ip_address" {
   value       = azurerm_public_ip.this.ip_address
 }
 
+output "admin_username" {
+  description = "vm administrator's username"
+  value       = var.admin_username
+}
+
 output "ssh_command" {
   description = "Ready-to-use SSH command"
   value       = "ssh ${var.admin_username}@${azurerm_public_ip.this.ip_address}"

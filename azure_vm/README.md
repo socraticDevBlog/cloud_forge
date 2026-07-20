@@ -1,8 +1,16 @@
+![Terraform](https://img.shields.io/badge/terraform-%235835CC.svg?style=for-the-badge&logo=terraform&logoColor=white)
+![Ansible](https://img.shields.io/badge/ansible-%231A1918.svg?style=for-the-badge&logo=ansible&logoColor=white)
+![Nginx](https://img.shields.io/badge/nginx-%23009639.svg?style=for-the-badge&logo=nginx&logoColor=white)
+
 # Azure Debian VM with Terraform
 
 This project provisions a hardened Debian VM on Azure with Docker, Docker Compose, UFW, and Fail2ban.
 
 ## Prerequisites
+
+- make (optionnal but recommended)
+- terraform
+- ansible
 
 Before using Terraform, make sure you have:
 
@@ -32,14 +40,30 @@ Terraform uses an Azure Storage Account backend to store state.
    - ssh_public_key_path (must point to your RSA public key)
    - allowed_ssh_source (set this to your home public IP, for example 203.0.113.5/32)
 
-## Deploy
+## Deploy virtual machine
 
 Run the following commands from this folder:
 
 ```bash
-terraform init
-terraform plan
-terraform apply
+make terraform-init
+make terraform-plan
+make terraform-apply
+```
+
+## Configure virtual machine
+
+```
+make ansible-playbook
+```
+
+## Test configurations
+
+```
+make healthcheck
+
+# expect
+<!-- Created <absolute path>/cloud_forge/debian_ansible/inventory.ini
+{"healthy":true}%  -->
 ```
 
 ## Notes

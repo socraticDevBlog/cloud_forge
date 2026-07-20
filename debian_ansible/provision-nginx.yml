@@ -1,0 +1,91 @@
+---
+- name: Provision nginx reverse proxy
+  hosts: all
+  become: true
+  vars_files:
+    - vars/vars.yml
+  vars:
+    nginx_user: www-data
+    nginx_conf_dir: /etc/nginx/conf.d
+    healthz_route_path: /healthz
+
+  tasks:
+    - name: Install nginx and certbot dependencies
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: true
+
+    - name: Ensure nginx config directory exists
+      ansible.builtin.file:
+        path: "{{ nginx_conf_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Disable the default Debian nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Create nginx site config
+      ansible.builtin.copy:
+        dest: /etc/nginx/conf.d/reverse-proxy.conf
+        mode: "0644"
+        content: |
+          server {
+            listen 443 ssl;
+            listen [::]:443 ssl;
+            server_name {{ domain_name }};
+
+            ssl_certificate     /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
+            ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
+
+            location = /healthz {
+              default_type application/json;
+              return 200 '{"healthy":true}';
+            }
+
+            location / {
+              return 404;
+            }
+          }
+
+          # Optional: redirect HTTP -> HTTPS
+          server {
+            listen 80;
+            listen [::]:80;
+            server_name {{ domain_name }};
+            return 301 https://$host$request_uri;
+          }
+
+    - name: Request TLS certificate with Certbot
+      ansible.builtin.command: >
+        certbot --nginx --non-interactive --agree-tos --email {{ certbot_email }} -d {{ domain_name }}
+      register: certbot_result
+      failed_when: certbot_result.rc not in [0, 2]
+      changed_when: certbot_result.rc == 0
+      args:
+        creates: /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
+
+    - name: Show Certbot output if it failed
+      ansible.builtin.debug:
+        var: certbot_result
+      when: certbot_result.rc != 0
+
+    - name: Test nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Ensure nginx is started and enabled
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Reload nginx to apply the new configuration
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
