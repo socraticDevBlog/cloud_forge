@@ -4,7 +4,10 @@
 
 # Azure Debian VM with Terraform
 
-This project provisions a hardened Debian VM on Azure with Docker, Docker Compose, UFW, and Fail2ban.
+This project provisions a hardened Debian VM on Azure with Docker, Docker
+Compose, UFW, and Fail2ban.
+
+![Project Logo](cloudforge.png)
 
 ## Prerequisites
 
