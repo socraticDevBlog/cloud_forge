@@ -10,6 +10,19 @@
     healthz_route_path: /healthz
 
   tasks:
+    - name: Ensure the admin user can receive SSH keys
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: sudo
+        append: true
+
+    - name: Authorize SSH public keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ item }}"
+        state: present
+      loop: "{{ authorized_ssh_keys | default([]) }}"
+
     - name: Install nginx and certbot dependencies
       ansible.builtin.apt:
         name:
@@ -30,6 +43,34 @@
         path: /etc/nginx/sites-enabled/default
         state: absent
 
+    - name: Check whether a certificate already exists
+      ansible.builtin.stat:
+        path: /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
+      register: cert_path
+
+    - name: Determine if the existing certificate is still valid
+      ansible.builtin.command: >
+        openssl x509 -checkend 2592000 -noout -in /etc/letsencrypt/live/{{ domain_name }}/cert.pem
+      register: cert_validity
+      changed_when: false
+      failed_when: false
+      when: cert_path.stat.exists
+
+    - name: Stop nginx before requesting certificates
+      ansible.builtin.service:
+        name: nginx
+        state: stopped
+      ignore_errors: true
+      when: not cert_path.stat.exists or cert_validity.rc != 0
+
+    - name: Request TLS certificate with Certbot
+      ansible.builtin.command: >
+        certbot certonly --standalone --non-interactive --agree-tos --email {{ certbot_email }} -d {{ domain_name }}
+      register: certbot_result
+      failed_when: certbot_result.rc not in [0, 2]
+      changed_when: certbot_result.rc == 0
+      when: not cert_path.stat.exists or cert_validity.rc != 0
+
     - name: Create nginx site config
       ansible.builtin.copy:
         dest: /etc/nginx/conf.d/reverse-proxy.conf
@@ -40,8 +81,22 @@
             listen [::]:443 ssl;
             server_name {{ domain_name }};
 
+            server_tokens off;
+
             ssl_certificate     /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
             ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
+            ssl_protocols TLSv1.2 TLSv1.3;
+            ssl_prefer_server_ciphers on;
+            ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256';
+            ssl_ecdh_curve X25519:prime256v1:secp384r1;
+            ssl_session_cache shared:SSL:10m;
+            ssl_session_timeout 1d;
+            ssl_session_tickets off;
+
+            add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "no-referrer" always;
 
             location = /healthz {
               default_type application/json;
@@ -61,19 +116,10 @@
             return 301 https://$host$request_uri;
           }
 
-    - name: Request TLS certificate with Certbot
-      ansible.builtin.command: >
-        certbot --nginx --non-interactive --agree-tos --email {{ certbot_email }} -d {{ domain_name }}
-      register: certbot_result
-      failed_when: certbot_result.rc not in [0, 2]
-      changed_when: certbot_result.rc == 0
-      args:
-        creates: /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
-
     - name: Show Certbot output if it failed
       ansible.builtin.debug:
         var: certbot_result
-      when: certbot_result.rc != 0
+      when: certbot_result is defined and certbot_result.rc is defined and certbot_result.rc != 0
 
     - name: Test nginx configuration
       ansible.builtin.command: nginx -t

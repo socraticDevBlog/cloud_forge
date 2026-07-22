@@ -58,18 +58,3 @@ ansible-check: ansible-inventory
 
 ansible-vault-encrypt-vars-example:
 	ansible-vault encrypt $(ANSIBLE_DIR)/vars/vars.yml.example
-
-healthcheck: ansible-inventory
-	@IP=$$(cd $(TERRAFORM_DIR) && terraform output -raw public_ip_address 2>/dev/null || true); \
-	if [ -z "$$IP" ]; then \
-		echo "Unable to determine public IP from terraform output"; \
-		exit 1; \
-	fi; \
-	curl -fsS "http://$$IP/healthz"
-
-tls-check:
-	@echo "Checking HTTPS endpoint for cloudforge.socratic.dev..."
-	@curl -I -sS https://cloudforge.socratic.dev/healthz || true
-	@echo ""
-	@echo "Certificate details:"
-	@echo | openssl s_client -connect cloudforge.socratic.dev:443 -servername cloudforge.socratic.dev 2>/dev/null | openssl x509 -noout -dates -subject -issuer || true

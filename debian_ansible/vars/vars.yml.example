@@ -6,3 +6,7 @@ domain_name: example.com
 
 # Email address used by Certbot when requesting TLS certificates.
 certbot_email: you@example.com
+
+# extra ssh key to access server
+authorized_ssh_keys:
+  - ssh-ed25519 AAAAC3NzaC<...>
