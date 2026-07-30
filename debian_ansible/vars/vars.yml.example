@@ -10,3 +10,14 @@ certbot_email: you@example.com
 # extra ssh key to access server
 authorized_ssh_keys:
   - ssh-ed25519 AAAAC3NzaC<...>
+
+# sensitive values required by Joplin server
+vault_joplin_env:
+  APP_BASE_URL: < value >
+  POSTGRES_USER: < value >
+  POSTGRES_PASSWORD: < value >
+  MAILER_HOST: < value >
+  MAILER_AUTH_USER: < value >
+  MAILER_AUTH_PASSWORD: < value >
+  MAILER_NOREPLY_NAME: < value >
+  MAILER_NOREPLY_EMAIL: < value >

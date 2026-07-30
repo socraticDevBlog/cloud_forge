@@ -5,7 +5,7 @@ TERRAFORM_DIR := $(ROOT_DIR)/azure_vm
 ANSIBLE_DIR := $(ROOT_DIR)/debian_ansible
 INVENTORY_FILE := $(ANSIBLE_DIR)/inventory.ini
 
-.PHONY: help terraform-init terraform-plan terraform-apply terraform-destroy ansible-inventory ansible-playbook ansible-check healthcheck tls-check ansible-vault-encrypt-vars-example
+.PHONY: help terraform-init terraform-plan terraform-apply terraform-destroy ansible-inventory ansible-playbook ansible-check healthcheck tls-check ansible-vault-encrypt-vars-example deploy-joplin
 
 help:
 	@echo "Available commands:"
@@ -21,6 +21,7 @@ help:
 	@echo "  make ansible-playbook"
 	@echo "  make ansible-check"
 	@echo "  make ansible-vault-encrypt-vars-example"
+	@echo "  make deploy-joplin"
 	@echo "  make healthcheck"
 	@echo "  make tls-check"
 
@@ -58,3 +59,6 @@ ansible-check: ansible-inventory
 
 ansible-vault-encrypt-vars-example:
 	ansible-vault encrypt $(ANSIBLE_DIR)/vars/vars.yml.example
+
+deploy-joplin: ansible-inventory
+	ansible-playbook -i $(INVENTORY_FILE) $(ANSIBLE_DIR)/deploy-joplin.yml --ask-vault-pass
