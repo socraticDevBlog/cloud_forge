@@ -7,6 +7,7 @@
   vars:
     nginx_user: www-data
     nginx_conf_dir: /etc/nginx/conf.d
+    apps_conf_dir: /etc/nginx/locations.d
     healthz_route_path: /healthz
 
   tasks:
@@ -32,11 +33,14 @@
         state: present
         update_cache: true
 
-    - name: Ensure nginx config directory exists
+    - name: Ensure nginx config directories exist
       ansible.builtin.file:
-        path: "{{ nginx_conf_dir }}"
+        path: "{{ item }}"
         state: directory
         mode: "0755"
+      loop:
+        - "{{ nginx_conf_dir }}"
+        - "{{ apps_conf_dir }}"
 
     - name: Disable the default Debian nginx site
       ansible.builtin.file:
@@ -81,6 +85,8 @@
             listen [::]:443 ssl;
             server_name {{ domain_name }};
 
+            include {{ apps_conf_dir }}/*.conf;
+
             server_tokens off;
 
             ssl_certificate     /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
@@ -103,30 +109,9 @@
               return 200 '{"healthy":true}';
             }
 
-            location /joplin/ {
-              rewrite ^/joplin/(.*)$ /$1 break;
-              proxy_pass http://127.0.0.1:22300/;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header X-Forwarded-Host $host;
-              proxy_set_header X-Forwarded-Proto $scheme;
-              proxy_set_header X-Forwarded-Port 443;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-              proxy_read_timeout 600s;
-              proxy_send_timeout 600s;
-              proxy_redirect off;
-            }
-
-            location = /joplin {
-              return 301 /joplin/;
-            }
-
             location / {
               return 404;
             }
-            
           }
 
           # Optional: redirect HTTP -> HTTPS
@@ -136,6 +121,7 @@
             server_name {{ domain_name }};
             return 301 https://$host$request_uri;
           }
+      notify: Reload nginx
 
     - name: Show Certbot output if it failed
       ansible.builtin.debug:
@@ -152,7 +138,5 @@
         state: started
         enabled: true
 
-    - name: Reload nginx to apply the new configuration
-      ansible.builtin.service:
-        name: nginx
-        state: reloaded
+  handlers:
+    - ansible.builtin.import_tasks: handlers/nginx.yml

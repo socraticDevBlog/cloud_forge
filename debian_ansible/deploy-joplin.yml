@@ -51,3 +51,32 @@
         cmd: docker compose -f docker-compose.yml up -d
       register: compose_result
       changed_when: "'Creating' in compose_result.stdout or 'Recreating' in compose_result.stdout or 'Starting' in compose_result.stdout"
+
+    - name: Create joplin site config
+      ansible.builtin.copy:
+        dest: /etc/nginx/locations.d/joplin.conf
+        mode: "0644"
+        content: |
+          location /joplin/ {
+            rewrite ^/joplin/(.*)$ /$1 break;
+            proxy_pass http://127.0.0.1:22300/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Port 443;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 600s;
+            proxy_send_timeout 600s;
+            proxy_redirect off;
+          }
+
+          location = /joplin {
+            return 301 /joplin/;
+          }
+        notify: Reload nginx
+
+  handlers:
+    - ansible.builtin.import_tasks: handlers/nginx.yml
