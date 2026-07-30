@@ -1,0 +1,53 @@
+---
+- name: Deploy Joplin stack
+  hosts: all
+  become: true
+  vars_files:
+    - vars/vars.yml
+  vars:
+    app_dir: /opt/stacks/joplin
+
+  tasks:
+    - name: Ensure Docker prerequisites are installed
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is running
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create app directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy Joplin docker compose file
+      ansible.builtin.copy:
+        src: ../apps/joplin/docker-compose.yml
+        dest: "{{ app_dir}}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Install .env
+      template:
+        src: .env.j2
+        dest: "{{ app_dir}}/.env"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Start Joplin stack
+      ansible.builtin.command:
+        chdir: "{{ app_dir }}"
+        cmd: docker compose -f docker-compose.yml up -d
+      register: compose_result
+      changed_when: "'Creating' in compose_result.stdout or 'Recreating' in compose_result.stdout or 'Starting' in compose_result.stdout"
