@@ -5,7 +5,7 @@ TERRAFORM_DIR := $(ROOT_DIR)/azure_vm
 ANSIBLE_DIR := $(ROOT_DIR)/debian_ansible
 INVENTORY_FILE := $(ANSIBLE_DIR)/inventory.ini
 
-.PHONY: help terraform-init terraform-plan terraform-apply terraform-destroy ansible-inventory ansible-playbook ansible-check healthcheck tls-check ansible-vault-encrypt-vars-example deploy-joplin
+.PHONY: help terraform-init terraform-plan terraform-apply ansible-inventory ansible-core-playbook ansible-deploy-joplin
 
 help:
 	@echo "Available commands:"
@@ -16,14 +16,9 @@ help:
 	@echo "  make terraform-init"
 	@echo "  make terraform-plan"
 	@echo "  make terraform-apply"
-	@echo "  make terraform-destroy"
 	@echo "  make ansible-inventory"
-	@echo "  make ansible-playbook"
-	@echo "  make ansible-check"
-	@echo "  make ansible-vault-encrypt-vars-example"
-	@echo "  make deploy-joplin"
-	@echo "  make healthcheck"
-	@echo "  make tls-check"
+	@echo "  make ansible-core-playbook"
+	@echo "  make ansible-deploy-joplin"
 
 terraform-init:
 	cd $(TERRAFORM_DIR) && terraform init
@@ -33,9 +28,6 @@ terraform-plan:
 
 terraform-apply:
 	cd $(TERRAFORM_DIR) && terraform apply -auto-approve
-
-terraform-destroy:
-	cd $(TERRAFORM_DIR) && terraform destroy -auto-approve
 
 ansible-inventory:
 	@mkdir -p $(ANSIBLE_DIR)
@@ -51,14 +43,8 @@ ansible-inventory:
 	printf '[servers]\n%s ansible_user=%s ansible_become=true\n' "$$IP" "$$USER" > $(INVENTORY_FILE)
 	@echo "Created $(INVENTORY_FILE)"
 
-ansible-playbook: ansible-inventory
+ansible-core-playbook: ansible-inventory
 	ansible-playbook -i $(INVENTORY_FILE) $(ANSIBLE_DIR)/provision-nginx.yml --ask-vault-pass
 
-ansible-check: ansible-inventory
-	ansible -i $(INVENTORY_FILE) all -m ping
-
-ansible-vault-encrypt-vars-example:
-	ansible-vault encrypt $(ANSIBLE_DIR)/vars/vars.yml.example
-
-deploy-joplin: ansible-inventory
+ansible-deploy-joplin: ansible-inventory
 	ansible-playbook -i $(INVENTORY_FILE) $(ANSIBLE_DIR)/deploy-joplin.yml --ask-vault-pass
