@@ -9,6 +9,14 @@
     nginx_conf_dir: /etc/nginx/conf.d
     apps_conf_dir: /etc/nginx/locations.d
     healthz_route_path: /healthz
+    apt_auto_upgrade: true
+    apt_upgrade_blocklist:
+      - linux-image
+      - linux-headers
+      - grub
+      - libc6
+      - libssl
+      - systemd
 
   tasks:
     - name: Ensure the admin user can receive SSH keys
@@ -23,6 +31,64 @@
         key: "{{ item }}"
         state: present
       loop: "{{ authorized_ssh_keys | default([]) }}"
+
+    - name: Check for safe apt upgrades
+      block:
+        - name: Update apt cache for upgrade checks
+          ansible.builtin.apt:
+            update_cache: true
+          register: apt_update
+          changed_when: false
+
+        - name: Get apt upgrade simulation summary
+          ansible.builtin.command: bash -lc "apt-get -s upgrade | grep -Eo '[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove' | awk -F'[, ]+' '{print $1, $3, $6}' | head -n1 || true"
+          register: apt_summary
+          changed_when: false
+          failed_when: false
+
+        - name: Get list of upgradable packages
+          ansible.builtin.command: bash -lc "apt list --upgradable 2>/dev/null | tail -n +2 | cut -d/ -f1 || true"
+          register: upgradable_pkgs
+          changed_when: false
+          failed_when: false
+
+        - name: Parse apt upgrade counts and package list
+          ansible.builtin.set_fact:
+            apt_upgrade_upgraded: "{{ (apt_summary.stdout.split()[0] | default('0')) | int }}"
+            apt_upgrade_new_installed: "{{ (apt_summary.stdout.split()[1] | default('0')) | int }}"
+            apt_upgrade_to_remove: "{{ (apt_summary.stdout.split()[2] | default('0')) | int }}"
+            apt_upgradable_packages: "{{ upgradable_pkgs.stdout_lines }}"
+
+        - name: Compile blocklist regex
+          ansible.builtin.set_fact:
+            apt_upgrade_blocklist_regex: "{{ apt_upgrade_blocklist | join('|') }}"
+
+        - name: Detect blocked packages in upgradable list
+          ansible.builtin.set_fact:
+            apt_upgrade_has_blocked: "{{ (apt_upgradable_packages | select('match', apt_upgrade_blocklist_regex) | list) | length > 0 }}"
+
+        - name: Decide whether it's safe to upgrade
+          ansible.builtin.set_fact:
+            apt_safe_to_upgrade: "{{ (apt_upgrade_to_remove | int == 0) and (apt_upgrade_new_installed | int == 0) and (not apt_upgrade_has_blocked) }}"
+
+        - name: Show upgradable packages and decision
+          ansible.builtin.debug:
+            msg:
+              - "upgradable={{ apt_upgradable_packages }}"
+              - "upgraded={{ apt_upgrade_upgraded }} newly_installed={{ apt_upgrade_new_installed }} to_remove={{ apt_upgrade_to_remove }}"
+              - "blocked_found={{ apt_upgrade_has_blocked }} safe_to_upgrade={{ apt_safe_to_upgrade }}"
+
+      when: apt_auto_upgrade | default(true)
+
+    - name: Perform apt upgrade (safe)
+      ansible.builtin.apt:
+        upgrade: yes
+      when: apt_safe_to_upgrade | default(false)
+
+    - name: Skip apt upgrade when not safe
+      ansible.builtin.debug:
+        msg: "Skipping apt upgrade: unsafe or blocked packages present"
+      when: not (apt_safe_to_upgrade | default(false))
 
     - name: Install nginx and certbot dependencies
       ansible.builtin.apt:
