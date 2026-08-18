@@ -6,6 +6,10 @@
     - vars/vars.yml
   vars:
     app_dir: /opt/stacks/joplin
+    restic_repo_dir: /var/backups/restic/joplin
+    restic_backup_dir: /var/backups/joplin
+    restic_password_file: /etc/restic/joplin-password
+    restic_backup_script: /usr/local/sbin/restic-joplin-backup.sh
 
   tasks:
     - name: Ensure Docker prerequisites are installed
@@ -25,6 +29,18 @@
         state: started
         enabled: true
 
+    - name: Install restic
+      ansible.builtin.apt:
+        name: restic
+        state: present
+        update_cache: true
+
+    - name: Install rsync
+      ansible.builtin.apt:
+        name: rsync
+        state: present
+        update_cache: true
+
     - name: Create app directory
       ansible.builtin.file:
         path: "{{ app_dir }}"
@@ -34,13 +50,13 @@
     - name: Copy Joplin docker compose file
       ansible.builtin.copy:
         src: ../apps/joplin/docker-compose.yml
-        dest: "{{ app_dir}}/docker-compose.yml"
+        dest: "{{ app_dir }}/docker-compose.yml"
         mode: "0644"
 
     - name: Install .env
-      template:
+      ansible.builtin.template:
         src: .env.j2
-        dest: "{{ app_dir}}/.env"
+        dest: "{{ app_dir }}/.env"
         owner: root
         group: root
         mode: "0600"
@@ -51,6 +67,143 @@
         cmd: docker compose -f docker-compose.yml up -d
       register: compose_result
       changed_when: "'Creating' in compose_result.stdout or 'Recreating' in compose_result.stdout or 'Starting' in compose_result.stdout"
+
+    - name: Create Joplin backup directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /var/backups
+        - /var/backups/restic
+        - "{{ restic_backup_dir }}"
+        - /etc/restic
+
+    - name: Ensure Azure admin can read the restic backup repo
+      ansible.builtin.file:
+        path: "{{ restic_repo_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Ensure Azure admin can read the local backup spool directory
+      ansible.builtin.file:
+        path: "{{ restic_backup_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Store restic password securely on the host
+      ansible.builtin.copy:
+        dest: "{{ restic_password_file }}"
+        content: "{{ restic_password }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Remove stale legacy Joplin backup repo if it exists
+      ansible.builtin.file:
+        path: /var/backups/restic/joplin-legacy
+        state: absent
+
+    - name: Initialise restic repository if missing
+      ansible.builtin.shell: |
+        export RESTIC_PASSWORD_FILE="{{ restic_password_file }}"
+        restic -r "{{ restic_repo_dir }}" init
+      args:
+        creates: "{{ restic_repo_dir }}/config"
+      register: restic_init
+      changed_when: "'created restic repository' in restic_init.stdout or 'repository already exists' not in restic_init.stderr"
+
+    - name: Install Joplin restic backup script
+      ansible.builtin.copy:
+        dest: "{{ restic_backup_script }}"
+        mode: "0750"
+        owner: root
+        group: root
+        content: |
+          #!/bin/bash
+          set -euo pipefail
+
+          APP_DIR="{{ app_dir }}"
+          BACKUP_DIR="{{ restic_backup_dir }}"
+          RESTIC_REPO="{{ restic_repo_dir }}"
+          PASSWORD_FILE="{{ restic_password_file }}"
+
+          export RESTIC_PASSWORD_FILE="${PASSWORD_FILE}"
+          export RESTIC_REPOSITORY="${RESTIC_REPO}"
+
+          mkdir -p "${BACKUP_DIR}/postgres"
+
+          DB_CONTAINER="$(docker compose -f "${APP_DIR}/docker-compose.yml" ps -q db)"
+          if [ -z "${DB_CONTAINER}" ]; then
+            echo "Joplin Postgres container is not running; aborting backup" >&2
+            exit 1
+          fi
+
+          DB_USER="$(grep '^POSTGRES_USER=' "${APP_DIR}/.env" | cut -d= -f2-)"
+          DB_PASSWORD="$(grep '^POSTGRES_PASSWORD=' "${APP_DIR}/.env" | cut -d= -f2-)"
+          if [ -z "${DB_USER}" ] || [ -z "${DB_PASSWORD}" ]; then
+            echo "POSTGRES_USER or POSTGRES_PASSWORD missing from ${APP_DIR}/.env" >&2
+            exit 1
+          fi
+
+          docker exec -e PGPASSWORD="${DB_PASSWORD}" "${DB_CONTAINER}" pg_dumpall -U "${DB_USER}" > "${BACKUP_DIR}/postgres/joplin.sql"
+
+          restic backup \
+            --verbose \
+            --tag joplin \
+            --one-file-system \
+            "${APP_DIR}" \
+            "${BACKUP_DIR}"
+
+          restic forget \
+            --prune \
+            --keep-last 1
+
+    - name: Install Joplin backup service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/restic-joplin-backup.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Joplin restic backup
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          User=root
+          Group=root
+          ExecStart=/usr/local/sbin/restic-joplin-backup.sh
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Install Joplin backup timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/restic-joplin-backup.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Run the Joplin restic backup hourly
+
+          [Timer]
+          OnCalendar=hourly
+          Persistent=true
+          Unit=restic-joplin-backup.service
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Reload systemd and enable hourly Joplin backup timer
+      ansible.builtin.systemd:
+        daemon_reload: true
+        name: restic-joplin-backup.timer
+        enabled: true
+        state: started
 
     - name: Create joplin site config
       ansible.builtin.copy:
@@ -76,7 +229,7 @@
           location = /joplin {
             return 301 /joplin/;
           }
-        notify: Reload nginx
+      notify: Reload nginx
 
   handlers:
     - ansible.builtin.import_tasks: handlers/nginx.yml
