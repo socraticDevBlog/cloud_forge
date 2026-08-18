@@ -1,3 +1,5 @@
+*.env
+
 # Local variable overrides — may contain your real IP, custom names, etc.
 terraform.tfvars
 *.tfvars

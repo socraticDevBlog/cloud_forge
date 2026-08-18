@@ -1,8 +1,8 @@
 [Unit]
-Description=Run Joplin rsync backup every hour
+Description=Run Joplin rsync backup every hour at minute 20
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*-*-* *:20:00
 Persistent=true
 Unit=joplin-rsync.service
 
