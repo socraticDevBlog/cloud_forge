@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Joplin rsync backup every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=joplin-rsync.service
+
+[Install]
+WantedBy=timers.target

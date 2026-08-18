@@ -11,6 +11,9 @@ certbot_email: you@example.com
 authorized_ssh_keys:
   - ssh-ed25519 AAAAC3NzaC<...>
 
+# local restic password used for the Joplin backup repository (set this in vars.yml)
+restic_password: change-me-please
+
 # sensitive values required by Joplin server
 vault_joplin_env:
   APP_BASE_URL: < value >

@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync Joplin restic repo from VM to WSL2 backup folder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=<username>
+Group=<a group your user is part of>
+ExecStart=/usr/bin/rsync -avz --delete --rsync-path="sudo rsync" azureadmin@<vm ip address>:/var/backups/restic/ <path/to/restic/backup>
