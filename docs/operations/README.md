@@ -2,6 +2,8 @@
 author: socraticDev
 date: 2026-08-17
 status: proposed
+last_successful_drill: 2026-08-18
+performed_by: socraticDev
 ---
 
 # backup strategy
@@ -17,7 +19,7 @@ The backup strategy uses `restic` because it is efficient, encrypted, and suppor
 The hourly systemd backup job performs the following actions:
 
 1. Reads the Joplin app directory from `/opt/stacks/joplin`
-2. Exports PostgreSQL data with `pg_dumpall`
+2. Exports PostgreSQL data with `pg_dumpall` # might refine this in the future (2026-08-18)
 3. Saves the PostgreSQL dump in `/var/backups/joplin/postgres/joplin.sql`
 4. Backs up both the app directory and the local dump into the restic repository at `/var/backups/restic/joplin`
 
@@ -80,7 +82,9 @@ The operator should test the restore procedure regularly. The restore process is
 5. Import the PostgreSQL dump back into PostgreSQL
 6. Start the service and verify access
 
-### Example restore workflow
+### Example restore workflow - from a .sql dump file
+
+only starts PGSQL container. If Joplin app is running, stop it
 
 ```bash
 # set the repository password
@@ -91,6 +95,12 @@ restic -r /mnt/c/Users/socdev/backup_joplin snapshots
 
 # restore the latest snapshot into a temporary location
 restic -r /mnt/c/Users/socdev/backup_joplin restore latest --target /tmp/joplin-restore
+
+docker exec -it <pgsql container ID> psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS joplin;"
+
+docker exec -it <pgsql container ID> psql -U postgres -d postgres -c "CREATE DATABASE joplin;"
+
+docker exec -i <pgsql container ID> psql -U postgres -d joplin < ../../tmp/joplin-restore/var/backups/joplin/postgres/joplin.sql
 ```
 
 After restore:
