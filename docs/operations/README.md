@@ -91,10 +91,10 @@ only starts PGSQL container. If Joplin app is running, stop it
 export RESTIC_PASSWORD='your-restic-password'
 
 # list snapshots
-restic -r /mnt/c/Users/socdev/backup_joplin snapshots
+restic -r /mnt/c/Users/socdev/backup_joplin/joplin snapshots
 
 # restore the latest snapshot into a temporary location
-restic -r /mnt/c/Users/socdev/backup_joplin restore latest --target /tmp/joplin-restore
+restic -r /mnt/c/Users/socdev/backup_joplin/joplin restore latest --target /tmp/joplin-restore
 
 docker exec -it <pgsql container ID> psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS joplin;"
 
@@ -166,4 +166,11 @@ If the SQL dump looks valid, the restore path is considered tested.
 
 The key rule is: the backup is only useful if the restore path has been tested. A restic snapshot that has not been restored is not a proven backup.
 
-The operator should treat the restore drill as mandatory and should keep a small log of the date and result.
+The operator should treat the restore drill as mandatory and should keep a
+small log of the date and result.
+
+### drills
+
+|date|anomalies (if any)|status|
+|-|-|-|
+|2026-09-27|on local machine, Joplin VM's was removed from ssh known hosts - not synced since 2026-09-11|sync fixed - backup restored successfully in a sandbox envir|

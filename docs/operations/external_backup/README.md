@@ -25,6 +25,6 @@ systemctl list-timers
 
 # 5. after an hour or two validate the timer ran rsync successfully
 
-journalctl -u joplin-rsync.timer --since "today"
+journalctl -u joplin-rsync.service --since "today"
 
 ```
