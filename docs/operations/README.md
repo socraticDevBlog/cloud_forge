@@ -91,16 +91,20 @@ only starts PGSQL container. If Joplin app is running, stop it
 export RESTIC_PASSWORD='your-restic-password'
 
 # list snapshots
-restic -r /mnt/c/Users/socdev/backup_joplin/joplin snapshots
+restic -r /mnt/c/Users/socdev/backup_joplin/joplin/snapshots
 
 # restore the latest snapshot into a temporary location
 restic -r /mnt/c/Users/socdev/backup_joplin/joplin restore latest --target /tmp/joplin-restore
+
+## start pgql and joplin containers - stop joplin container
 
 docker exec -it <pgsql container ID> psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS joplin;"
 
 docker exec -it <pgsql container ID> psql -U postgres -d postgres -c "CREATE DATABASE joplin;"
 
 docker exec -i <pgsql container ID> psql -U postgres -d joplin < ../../tmp/joplin-restore/var/backups/joplin/postgres/joplin.sql
+
+## start joplin container
 ```
 
 After restore:
@@ -174,3 +178,4 @@ small log of the date and result.
 |date|anomalies (if any)|status|
 |-|-|-|
 |2026-09-27|on local machine, Joplin VM's was removed from ssh known hosts - not synced since 2026-09-11|sync fixed - backup restored successfully in a sandbox envir|
+|2026-10-30||backup restored successfully in a sandbox envir|
