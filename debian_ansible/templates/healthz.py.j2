@@ -1,0 +1,169 @@
+#!/usr/bin/python3
+
+import json
+import logging
+import os
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlsplit
+
+
+SERVICES = {{ healthz_services | to_json }}
+UPSTREAM_HOST = {{ domain_name | to_json }}
+RESPONSE_PATH = Path({{ healthz_response_path | to_json }})
+LISTEN_PORT = {{ healthz_listen_port }}
+CACHE_SECONDS = {{ healthz_cache_seconds }}
+CHECK_TIMEOUT_SECONDS = {{ healthz_check_timeout_seconds }}
+MAX_CHECK_WORKERS = 8
+
+check_lock = threading.Lock()
+cached_write_failure = False
+
+
+def initial_last_check():
+    try:
+        cached_statuses = json.loads(RESPONSE_PATH.read_bytes())["services"]
+        if not isinstance(cached_statuses, dict):
+            return 0.0
+        expected_names = {service["name"] for service in SERVICES}
+        if (
+            set(cached_statuses) != expected_names
+            or any(status not in ("ok", "unavailable") for status in cached_statuses.values())
+        ):
+            return 0.0
+        age = max(0.0, time.time() - RESPONSE_PATH.stat().st_mtime)
+        return time.monotonic() - age
+    except (OSError, KeyError, json.JSONDecodeError, TypeError, UnicodeDecodeError):
+        return 0.0
+
+
+last_check = initial_last_check()
+
+
+def check_service(service):
+    request = urllib.request.Request(
+        service["url"], headers={"Host": UPSTREAM_HOST}, method="GET"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=CHECK_TIMEOUT_SECONDS) as response:
+            if response.status != 200:
+                logging.warning("Health check failed for %s", service["name"])
+                return service["name"], "unavailable"
+    except (urllib.error.URLError, TimeoutError, OSError):
+        logging.warning("Health check failed for %s", service["name"])
+        return service["name"], "unavailable"
+    return service["name"], "ok"
+
+
+def check_services():
+    worker_count = min(len(SERVICES), MAX_CHECK_WORKERS)
+    if worker_count == 0:
+        return {}
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        return dict(executor.map(check_service, SERVICES))
+
+
+def make_response(service_statuses):
+    all_healthy = bool(service_statuses) and all(
+        status == "ok" for status in service_statuses.values()
+    )
+    result = {
+        "status": "ok" if all_healthy else "degraded",
+        "services": service_statuses,
+    }
+    return json.dumps(result, separators=(",", ":")).encode("utf-8")
+
+
+def write_response(body):
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=RESPONSE_PATH.parent, delete=False
+        ) as temporary_file:
+            temporary_path = temporary_file.name
+            temporary_file.write(body)
+        os.chmod(temporary_path, 0o640)
+        os.replace(temporary_path, RESPONSE_PATH)
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+class HealthzHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        global cached_write_failure, last_check
+        if urlsplit(self.path).path != {{ healthz_route_path | to_json }}:
+            self.send_error(404)
+            return
+
+        with check_lock:
+            if time.monotonic() - last_check >= CACHE_SECONDS:
+                body = make_response(check_services())
+                last_check = time.monotonic()
+                try:
+                    write_response(body)
+                except OSError:
+                    logging.exception("Could not update health response file")
+                    cached_write_failure = True
+                else:
+                    cached_write_failure = False
+
+            if cached_write_failure:
+                self.send_json(503, b'{"status":"degraded","services":{}}')
+                return
+
+            try:
+                body = RESPONSE_PATH.read_bytes()
+                status_code = json.loads(body)["status"]
+                status_code = 200 if status_code == "ok" else 503
+            except (OSError, KeyError, json.JSONDecodeError, TypeError, UnicodeDecodeError):
+                logging.exception("Could not read health response file")
+                self.send_json(503, b'{"status":"degraded","services":{}}')
+                return
+
+        self.send_json(status_code, body)
+
+    def send_json(self, status_code, body):
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format_string, *args):
+        logging.debug("%s - %s", self.address_string(), format_string % args)
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    request_queue_size = 128
+
+    def __init__(self, *args, **kwargs):
+        self.request_slots = threading.BoundedSemaphore(32)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        self.request_slots.acquire()
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+server = BoundedThreadingHTTPServer(("127.0.0.1", LISTEN_PORT), HealthzHandler)
+server.daemon_threads = True
+server.serve_forever()
