@@ -9,6 +9,14 @@
     nginx_conf_dir: /etc/nginx/conf.d
     apps_conf_dir: /etc/nginx/locations.d
     healthz_route_path: /healthz
+    healthz_response_path: /var/lib/nginx/healthz.json
+    healthz_service_path: /usr/local/libexec/cloud-forge-healthz.py
+    healthz_listen_port: 18081
+    healthz_cache_seconds: 10
+    healthz_check_timeout_seconds: 2
+    healthz_services:
+      - name: joplin
+        url: http://127.0.0.1:22300/api/ping
     apt_auto_upgrade: true
     apt_upgrade_blocklist:
       - linux-image
@@ -96,6 +104,7 @@
           - nginx
           - certbot
           - python3-certbot-nginx
+          - python3
         state: present
         update_cache: true
 
@@ -125,6 +134,82 @@
       changed_when: false
       failed_when: false
       when: cert_path.stat.exists
+
+    - name: Ensure health endpoint directory exists
+      ansible.builtin.file:
+        path: /var/lib/nginx
+        state: directory
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: "0750"
+
+    - name: Ensure health endpoint handler directory exists
+      ansible.builtin.file:
+        path: /usr/local/libexec
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create initial health endpoint response
+      ansible.builtin.copy:
+        dest: "{{ healthz_response_path }}"
+        content: '{"status":"degraded","services":{}}'
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: "0640"
+        force: false
+
+    - name: Ensure health endpoint response permissions
+      ansible.builtin.file:
+        path: "{{ healthz_response_path }}"
+        owner: "{{ nginx_user }}"
+        group: "{{ nginx_user }}"
+        mode: "0640"
+
+    - name: Install health endpoint handler
+      ansible.builtin.template:
+        src: templates/healthz.py.j2
+        dest: "{{ healthz_service_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart healthz service
+
+    - name: Install health endpoint service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/cloud-forge-healthz.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Cloud Forge cached health endpoint
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ nginx_user }}
+          Group={{ nginx_user }}
+          ExecStart=/usr/bin/python3 {{ healthz_service_path }}
+          Restart=on-failure
+          RestartSec=2s
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=strict
+          ProtectHome=true
+          ReadWritePaths=/var/lib/nginx
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart healthz service
+
+    - name: Ensure health endpoint service is started and enabled
+      ansible.builtin.systemd:
+        name: cloud-forge-healthz.service
+        daemon_reload: true
+        state: started
+        enabled: true
 
     - name: Stop nginx before requesting certificates
       ansible.builtin.service:
@@ -170,9 +255,24 @@
             add_header X-Content-Type-Options "nosniff" always;
             add_header Referrer-Policy "no-referrer" always;
 
-            location = /healthz {
-              default_type application/json;
-              return 200 '{"healthy":true}';
+            location = {{ healthz_route_path }} {
+              add_header Cache-Control "no-store" always;
+              add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+              add_header X-Frame-Options "DENY" always;
+              add_header X-Content-Type-Options "nosniff" always;
+              add_header Referrer-Policy "no-referrer" always;
+              limit_except GET {
+                deny all;
+              }
+              proxy_pass http://127.0.0.1:{{ healthz_listen_port }};
+              proxy_http_version 1.1;
+              proxy_pass_request_headers off;
+              proxy_pass_request_body off;
+              proxy_method GET;
+              proxy_set_header Host 127.0.0.1;
+              proxy_connect_timeout 1s;
+              proxy_read_timeout 5s;
+              proxy_send_timeout 5s;
             }
 
             location / {
@@ -206,3 +306,8 @@
 
   handlers:
     - ansible.builtin.import_tasks: handlers/nginx.yml
+    - name: Restart healthz service
+      ansible.builtin.systemd:
+        name: cloud-forge-healthz.service
+        daemon_reload: true
+        state: restarted
