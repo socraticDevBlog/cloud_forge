@@ -12,7 +12,7 @@
     healthz_response_path: /var/lib/nginx/healthz.json
     healthz_service_path: /usr/local/libexec/cloud-forge-healthz.py
     healthz_listen_port: 18081
-    healthz_cache_seconds: 60
+    healthz_cache_seconds: 10
     healthz_check_timeout_seconds: 2
     healthz_services:
       - name: joplin
