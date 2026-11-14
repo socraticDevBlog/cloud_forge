@@ -1,10 +1,10 @@
 terraform {
-  required_version = "1.15.7"
+  required_version = ">= 1.17.2"
 
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "4.81.0"
+      version = "5.14.0"
     }
   }
 }
@@ -121,14 +121,14 @@ resource "azurerm_network_interface_security_group_association" "this" {
 }
 
 resource "azurerm_linux_virtual_machine" "this" {
-  name                              = "${var.prefix}-vm"
-  location                          = azurerm_resource_group.this.location
-  resource_group_name               = azurerm_resource_group.this.name
-  size                              = var.vm_size
-  admin_username                    = var.admin_username
-  network_interface_ids             = [azurerm_network_interface.this.id]
-  disable_password_authentication   = true
-  tags                              = var.tags
+  name                            = "${var.prefix}-vm"
+  location                        = azurerm_resource_group.this.location
+  resource_group_name             = azurerm_resource_group.this.name
+  size                            = var.vm_size
+  admin_username                  = var.admin_username
+  network_interface_ids           = [azurerm_network_interface.this.id]
+  disable_password_authentication = true
+  tags                            = var.tags
 
   admin_ssh_key {
     username   = var.admin_username
