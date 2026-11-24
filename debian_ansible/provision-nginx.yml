@@ -18,6 +18,11 @@
       - name: joplin
         url: http://127.0.0.1:22300/api/ping
     apt_auto_upgrade: true
+    # Minimum Debian package revision that includes the security backports we require.
+    # Debian keeps the upstream 1.26.3 base and backports fixes as -3+deb13uXX revisions
+    # (trixie-security). deb13u11 = upstream 1.30.7 fixes (CVE-2026-123007 et al., 2026-11-18).
+    # Bump this when a newer trixie-security revision lands (e.g. for CVE-2026-132779).
+    nginx_min_patched_version: "1.26.3-3+deb13u11"
     apt_upgrade_blocklist:
       - linux-image
       - linux-headers
@@ -98,15 +103,31 @@
         msg: "Skipping apt upgrade: unsafe or blocked packages present"
       when: not (apt_safe_to_upgrade | default(false))
 
-    - name: Install nginx and certbot dependencies
+    - name: Install/upgrade nginx and certbot dependencies
       ansible.builtin.apt:
         name:
           - nginx
+          - nginx-common
           - certbot
           - python3-certbot-nginx
           - python3
-        state: present
+        state: latest
         update_cache: true
+
+    - name: Read installed nginx package version
+      ansible.builtin.command: dpkg-query -W -f='${Version}' nginx
+      register: nginx_pkg_version
+      changed_when: false
+
+    - name: Assert nginx package carries required security fixes
+      ansible.builtin.assert:
+        that:
+          - nginx_pkg_version.stdout is version(nginx_min_patched_version, '>=')
+        fail_msg: >-
+          nginx {{ nginx_pkg_version.stdout }} is older than {{ nginx_min_patched_version }}
+          (trixie-security backport; see nginx_min_patched_version in this playbook).
+          Run 'apt update && apt install --only-upgrade nginx' to pull the fix.
+        success_msg: "nginx {{ nginx_pkg_version.stdout }} >= {{ nginx_min_patched_version }} (patched)"
 
     - name: Ensure nginx config directories exist
       ansible.builtin.file:
