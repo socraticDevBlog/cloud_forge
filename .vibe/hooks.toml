@@ -1,0 +1,13 @@
+# Guardrail: never commit to or push the default branch directly.
+# Changes to main only land via a feature branch + pull request.
+# strict = true -> if this hook fails to run, the tool call is DENIED (fail closed).
+# Runs with python3 if available, otherwise falls back to python; if neither
+# interpreter exists the hook exits non-zero and strict mode denies the call.
+[[hooks]]
+name = "guard-default-branch"
+type = "pre_tool"
+match = "re:bash|process_start"
+strict = true
+timeout = 15
+description = "Deny git commit/push on the default branch; require feature branch + PR"
+command = "python3 \"$(git rev-parse --show-toplevel)/.vibe/hooks/git-guard.py\" || python \"$(git rev-parse --show-toplevel)/.vibe/hooks/git-guard.py\""
